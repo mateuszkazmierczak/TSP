@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <fstream>
+#include <sstream>
 #include <cmath>
 #include <limits>
 #include <random>
@@ -12,10 +13,48 @@
 using namespace std;
 using namespace std::chrono;
 
+struct ACOConfig {
+    int numAnts = 50;
+    double alpha = 1.0;
+    double beta = 5.0;
+    double evaporationRate = 0.5;
+    double q = 100.0;
+    int maxExecutionTimeMs = 3 * 60 * 1000; // 3 minutes default
+};
+
 struct City {
     int id;
     double x, y;
 };
+
+// Read ACO configuration from file
+ACOConfig readConfigFromFile(const string& filename) {
+    ACOConfig config;
+    ifstream configFile(filename);
+    
+    if (!configFile.is_open()) {
+        cerr << "Warning: Could not open config file. Using default parameters." << endl;
+        return config;
+    }
+
+    string line;
+    while (getline(configFile, line)) {
+        istringstream iss(line);
+        string key;
+        double value;
+        
+        if (getline(iss, key, '=') && iss >> value) {
+            if (key == "num_ants") config.numAnts = static_cast<int>(value);
+            else if (key == "alpha") config.alpha = value;
+            else if (key == "beta") config.beta = value;
+            else if (key == "evaporation_rate") config.evaporationRate = value;
+            else if (key == "q") config.q = value;
+            else if (key == "max_execution_time_ms") config.maxExecutionTimeMs = static_cast<int>(value);
+        }
+    }
+
+    return config;
+}
 
 // Calculate Euclidean distance between two cities
 double calculateDistance(const City &a, const City &b) {
@@ -62,30 +101,22 @@ vector<City> readCitiesFromFile(const string &filename) {
     return cities;
 }
 
-// ACO parameters
-const int NUM_ANTS = 50;
-const double ALPHA = 0.5;  // Pheromone importance
-const double BETA = 5.0;   // Distance (heuristic) importance
-const double EVAPORATION_RATE = 0.5;
-const double Q = 100.0;    // Pheromone deposit factor
-const int MAX_EXECUTION_TIME_MS = 0.5 * 60 * 1000; // 3 minutes
-
 // Atomic flag for time monitoring
 atomic<bool> timeExceeded(false);
 
 // Time monitoring thread function
-void monitorTime() {
-    this_thread::sleep_for(milliseconds(MAX_EXECUTION_TIME_MS));
+void monitorTime(int maxExecutionTimeMs) {
+    this_thread::sleep_for(milliseconds(maxExecutionTimeMs));
     timeExceeded = true;
 }
 
 // Main ACO TSP function
-vector<int> acoTSP(const vector<City> &cities) {
+vector<int> acoTSP(const vector<City> &cities, const ACOConfig& config) {
     // Reset time exceeded flag
     timeExceeded = false;
     
     // Start time monitoring thread
-    thread timeMonitor(monitorTime);
+    thread timeMonitor(monitorTime, config.maxExecutionTimeMs);
     
     int numCities = static_cast<int>(cities.size());
     
@@ -112,11 +143,11 @@ vector<int> acoTSP(const vector<City> &cities) {
     int iteration = 0;
     while (!timeExceeded) {
         // Each ant's tour and tour length
-        vector<vector<int>> antsTours(NUM_ANTS, vector<int>(numCities));
-        vector<double> antsTourLengths(NUM_ANTS, 0.0);
+        vector<vector<int>> antsTours(config.numAnts, vector<int>(numCities));
+        vector<double> antsTourLengths(config.numAnts, 0.0);
 
         // Construct tours for each ant
-        for (int ant = 0; ant < NUM_ANTS; ++ant) {
+        for (int ant = 0; ant < config.numAnts; ++ant) {
             // Pick a random start city
             int currentCity = cityDist(gen);
             vector<bool> visited(numCities, false);
@@ -132,9 +163,9 @@ vector<int> acoTSP(const vector<City> &cities) {
                 // Calculate selection probabilities
                 for (int city = 0; city < numCities; ++city) {
                     if (!visited[city]) {
-                        double tau = pow(pheromones[currentCity][city], ALPHA);
+                        double tau = pow(pheromones[currentCity][city], config.alpha);
                         // Add small constant to avoid division by zero
-                        double eta = pow(1.0 / (distances[currentCity][city] + 1e-12), BETA);
+                        double eta = pow(1.0 / (distances[currentCity][city] + 1e-12), config.beta);
                         probabilities[city] = tau * eta;
                         sumProbabilities += probabilities[city];
                     }
@@ -194,7 +225,7 @@ vector<int> acoTSP(const vector<City> &cities) {
         // Pheromone evaporation
         for (int i = 0; i < numCities; ++i) {
             for (int j = 0; j < numCities; ++j) {
-                pheromones[i][j] *= (1.0 - EVAPORATION_RATE);
+                pheromones[i][j] *= (1.0 - config.evaporationRate);
                 // Keep pheromone above a tiny threshold (optional)
                 if (pheromones[i][j] < 1e-12) {
                     pheromones[i][j] = 1e-12;
@@ -203,18 +234,18 @@ vector<int> acoTSP(const vector<City> &cities) {
         }
 
         // Pheromone update (deposit)
-        for (int ant = 0; ant < NUM_ANTS; ++ant) {
+        for (int ant = 0; ant < config.numAnts; ++ant) {
             for (int step = 0; step < numCities - 1; ++step) {
                 int city1 = antsTours[ant][step];
                 int city2 = antsTours[ant][step + 1];
-                pheromones[city1][city2] += (Q / antsTourLengths[ant]);
-                pheromones[city2][city1] += (Q / antsTourLengths[ant]);
+                pheromones[city1][city2] += (config.q / antsTourLengths[ant]);
+                pheromones[city2][city1] += (config.q / antsTourLengths[ant]);
             }
             // Close the loop
             int lastCity = antsTours[ant][numCities - 1];
             int firstCity = antsTours[ant][0];
-            pheromones[lastCity][firstCity] += (Q / antsTourLengths[ant]);
-            pheromones[firstCity][lastCity] += (Q / antsTourLengths[ant]);
+            pheromones[lastCity][firstCity] += (config.q / antsTourLengths[ant]);
+            pheromones[firstCity][lastCity] += (config.q / antsTourLengths[ant]);
         }
 
         iteration++;
@@ -228,21 +259,28 @@ vector<int> acoTSP(const vector<City> &cities) {
 }
 
 int main(int argc, char *argv[]) {
-    // Expect filename as command-line argument
+    // Check for city file
     if (argc < 2) {
-        cerr << "Usage: " << argv[0] << " <filename>" << endl;
+        cerr << "Usage: " << argv[0] << " <cities_file> [config_file]" << endl;
         return 1;
     }
 
-    string filename = argv[1];
+    string citiesFilename = argv[1];
+    ACOConfig config;
+
+    // Check if config file is provided
+    if (argc > 2) {
+        config = readConfigFromFile(argv[2]);
+    }
+
     // Read cities from file
-    vector<City> cities = readCitiesFromFile(filename);
+    vector<City> cities = readCitiesFromFile(citiesFilename);
     if (cities.empty()) {
         cerr << "Error: No cities loaded. Check file format or path." << endl;
         return 1;
     }
 
-    cout << "Loaded " << cities.size() << " cities from: " << filename << "\n\n";
+    cout << "Loaded " << cities.size() << " cities from: " << citiesFilename << "\n\n";
     for (const auto &c : cities) {
         cout << "ID: " << c.id << " at (" << c.x << ", " << c.y << ")\n";
     }
@@ -250,7 +288,7 @@ int main(int argc, char *argv[]) {
 
     auto start = high_resolution_clock::now();
     // Run ACO
-    vector<int> bestTour = acoTSP(cities);
+    vector<int> bestTour = acoTSP(cities, config);
     auto stop = high_resolution_clock::now();
 
     // Print best tour
