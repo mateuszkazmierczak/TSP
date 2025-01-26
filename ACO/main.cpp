@@ -259,18 +259,34 @@ vector<int> acoTSP(const vector<City> &cities, const ACOConfig& config) {
 }
 
 int main(int argc, char *argv[]) {
-    // Check for city file
-    if (argc < 2) {
-        cerr << "Usage: " << argv[0] << " <cities_file> [config_file]" << endl;
+    bool showCities = false;
+    string citiesFilename;
+    string configFilename;
+    
+    // -c for showing every city
+    vector<string> args;
+    for (int i = 1; i < argc; ++i) {
+        string arg = argv[i];
+        if (arg == "-c") {
+            showCities = true;
+        } else {
+            args.push_back(arg);
+        }
+    }
+
+    // After parsing, the first non-flag argument is the cities file
+    if (args.empty()) {
+        cerr << "Usage: " << argv[0] << " [-c] <cities_file> [config_file]" << endl;
         return 1;
     }
 
-    string citiesFilename = argv[1];
+    citiesFilename = args[0];
     ACOConfig config;
 
-    // Check if config file is provided
-    if (argc > 2) {
-        config = readConfigFromFile(argv[2]);
+    // If a second non-flag argument is provided, it's the config file
+    if (args.size() > 1) {
+        configFilename = args[1];
+        config = readConfigFromFile(configFilename);
     }
 
     // Read cities from file
@@ -281,17 +297,19 @@ int main(int argc, char *argv[]) {
     }
 
     cout << "Loaded " << cities.size() << " cities from: " << citiesFilename << "\n\n";
-    for (const auto &c : cities) {
-        cout << "ID: " << c.id << " at (" << c.x << ", " << c.y << ")\n";
+
+    // Conditionally display cities based on the -c flag
+    if (showCities) {
+        for (const auto &c : cities) {
+            cout << "ID: " << c.id << " at (" << c.x << ", " << c.y << ")\n";
+        }
+        cout << endl;
     }
-    cout << endl;
 
     auto start = high_resolution_clock::now();
-    // Run ACO
     vector<int> bestTour = acoTSP(cities, config);
     auto stop = high_resolution_clock::now();
-
-    // Print best tour
+    
     cout << "Best tour found:" << endl;
     for (int idx : bestTour) {
         cout << idx << " ";
