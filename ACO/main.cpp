@@ -310,9 +310,10 @@ int main(int argc, char *argv[]) {
     vector<int> bestTour = acoTSP(cities, config);
     auto stop = high_resolution_clock::now();
     
-    cout << "Best tour found:" << endl;
+    // Print best tour using the actual city IDs from the input file
+    cout << "Best tour found (city IDs):" << endl;
     for (int idx : bestTour) {
-        cout << idx << " ";
+        cout << cities[idx].id << " ";
     }
     cout << endl;
 
