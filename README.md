@@ -1,2 +1,2 @@
 # TSP
-TSP algorithm
+TSP algorithm using greedy algorithm and ant colony optimization metaheuristics
